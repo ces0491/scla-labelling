@@ -1,0 +1,22 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #0f1117;
+  --panel: #161a23;
+  --text: #e5e7eb;
+  --muted: #9aa3b2;
+  --accent: #ffd54f;
+}
+
+html, body {
+  background: var(--bg);
+  color: var(--text);
+  font-family:
+    ui-sans-serif, system-ui, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+  margin: 0;
+  padding: 0;
+}
+
+a { color: var(--accent); }
+a:hover { text-decoration: underline; }
