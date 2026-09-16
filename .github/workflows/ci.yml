@@ -32,8 +32,25 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
+      # `npm install`, not `npm ci`, and that is a deliberate trade-off.
+      #
+      # npm prunes platform-specific optional dependencies from the
+      # lockfile: `sharp` (pulled in by Next for image optimization)
+      # resolves native binaries on one platform and a wasm32 fallback on
+      # another, and the fallback's @emnapi/* transitives are only
+      # recorded on the platform that selected it. A lockfile generated
+      # on Windows fails `npm ci` here; one generated in a Linux
+      # container fails `npm ci` on the Windows dev machine. Verified
+      # both directions, including with matching npm versions.
+      #
+      # This job exists to catch "the app does not build" -- which is
+      # exactly what had gone unnoticed for four months -- not to pin
+      # exact transitive versions for an app that is not yet deployed.
+      # `npm install` gets that, on both platforms, today. If this repo
+      # does get deployed, generate the lockfile on Linux (the platform
+      # Vercel builds on) and switch this back to `npm ci`.
       - name: Install dependencies
-        run: npm ci
+        run: npm install --no-audit --no-fund
 
       # `npm run lint` is plain `eslint`, deliberately WITHOUT
       # --max-warnings 0: eslint.config.mjs downgrades
