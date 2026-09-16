@@ -1,0 +1,99 @@
+name: CI
+
+# This repo had no CI, and that is how three faults sat here unnoticed
+# for four months: `npm run lint` was `next lint` (removed in Next 16, so
+# the script errored instead of linting), `@tailwindcss/postcss` was
+# missing although postcss.config.mjs required it, and /magic called
+# useSearchParams() outside a Suspense boundary -- fatal to
+# prerendering. `npm run build` had never succeeded.
+#
+# The build step is the one that matters most here: it is the gate that
+# would have caught two of those three on the commit that introduced
+# them.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checks:
+    name: Lint, typecheck, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      # Node 20 to match what Vercel/Render would run, and what the
+      # sibling SCLA frontend pins.
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      # `npm install`, not `npm ci`, and that is a deliberate trade-off.
+      #
+      # npm prunes platform-specific optional dependencies from the
+      # lockfile: `sharp` (pulled in by Next for image optimization)
+      # resolves native binaries on one platform and a wasm32 fallback on
+      # another, and the fallback's @emnapi/* transitives are only
+      # recorded on the platform that selected it. A lockfile generated
+      # on Windows fails `npm ci` here; one generated in a Linux
+      # container fails `npm ci` on the Windows dev machine. Verified
+      # both directions, including with matching npm versions.
+      #
+      # This job exists to catch "the app does not build" -- which is
+      # exactly what had gone unnoticed for four months -- not to pin
+      # exact transitive versions for an app that is not yet deployed.
+      # `npm install` gets that, on both platforms, today. If this repo
+      # does get deployed, generate the lockfile on Linux (the platform
+      # Vercel builds on) and switch this back to `npm ci`.
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      # `npm run lint` is plain `eslint`, deliberately WITHOUT
+      # --max-warnings 0: eslint.config.mjs downgrades
+      # react-hooks/set-state-in-effect to a warning on purpose, so that
+      # the async-load pattern surfaces without blocking. Errors still
+      # fail the job.
+      - name: Run eslint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # Needs no secrets: every route either prerenders or is a server
+      # route whose env is read at request time.
+      - name: Build
+        run: npm run build
+
+  taxonomy:
+    name: Gesture taxonomy is generated, not hand-edited
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      # lib/gestures.ts is generated from
+      # scla/sports/rugby/referee_gestures.py in the SCLA repo. This job
+      # cannot regenerate it (SCLA is private and not checked out here),
+      # so it asserts the two things a hand-edit would break: the
+      # DO-NOT-EDIT banner, and the absence of the codes SCLA retired.
+      #
+      # The authoritative check is on the SCLA side --
+      # `python scripts/export_gesture_taxonomy.py --check`, which
+      # push_labelling_tasks.py runs before handing out any task.
+      - name: Generated banner is intact
+        run: |
+          grep -q "GENERATED FILE -- DO NOT EDIT BY HAND" lib/gestures.ts \
+            || { echo "lib/gestures.ts lost its generated-file banner -- was it hand-edited?"; exit 1; }
+
+      - name: Retired gesture codes are not offered as choices
+        run: |
+          for code in lineout mark; do
+            if grep -qE "^\s+code: \"$code\"," lib/gestures.ts; then
+              echo "lib/gestures.ts offers retired code '$code'."
+              echo "Regenerate from SCLA: python scripts/export_gesture_taxonomy.py --out ../scla-labelling/lib/gestures.ts"
+              exit 1
+            fi
+          done
